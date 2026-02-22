@@ -358,6 +358,28 @@ describe('DataLinkManager', () => {
       console.error = originalError;
       errorManager.destroy();
     });
+
+    it('should resolve range reference', async () => {
+      const source = {
+        fileId: 'file-1',
+        fileName: 'Test.xlsx',
+        sheetId: 'sheet-1',
+        sheetName: 'Sheet1',
+        range: { startRow: 0, startCol: 0, endRow: 2, endCol: 1 },
+        isFormula: false,
+      };
+
+      const mockRangeValues = [['A1', 'B1'], ['A2', 'B2'], ['A3', 'B3']];
+
+      mockExcelManager.resolveReference = vi.fn().mockResolvedValue(mockRangeValues);
+
+      const refId = manager.createReference(source, 'doc-1');
+      const ref = manager.getReference(refId);
+      const result = await manager.resolveReference(ref!);
+
+      expect(mockExcelManager.resolveReference).toHaveBeenCalledWith(ref);
+      expect(result).toEqual(mockRangeValues);
+    });
   });
 
   describe('resolveReferenceBatch', () => {
