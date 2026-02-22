@@ -19,6 +19,8 @@ interface WordEditorProps {
   onReferenceInserted?: (reference: DataReference) => void;
   /** Called when "+ Reference" is clicked. Parent should insert reference from selected Excel cell. */
   onInsertReferenceRequest?: () => void;
+  /** Called when "+ Table Reference" is clicked. Parent should insert table reference from selected Excel range. */
+  onInsertTableReferenceRequest?: () => void;
   /** When provided (e.g. from integrated page), use this documentId for Refresh All and same manager/syncEngine. */
   documentId?: string;
   /** When provided, use this manager instead of useDataSync internal one (must have setExcelWorkbook for resolve). */
@@ -63,6 +65,7 @@ export const WordEditor = forwardRef<WordEditorRefType, WordEditorProps>(({
   onChange,
   onReferenceInserted,
   onInsertReferenceRequest,
+  onInsertTableReferenceRequest,
   documentId: documentIdProp,
   dataLinkManager: dataLinkManagerProp,
   syncEngine: syncEngineProp,
@@ -355,6 +358,21 @@ export const WordEditor = forwardRef<WordEditorRefType, WordEditorProps>(({
           title={onInsertReferenceRequest ? 'Insert reference from selected Excel cell' : 'Insert test reference'}
         >
           + Reference
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            if (onInsertTableReferenceRequest) {
+              onInsertTableReferenceRequest();
+            } else {
+              console.log('No table reference callback provided');
+            }
+          }}
+          className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
+          title={onInsertTableReferenceRequest ? 'Insert table reference from selected Excel range' : 'No table reference callback'}
+        >
+          + Table Reference
         </button>
       </div>
 
