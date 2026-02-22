@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { ReactNode } from 'react';
 import { ReferenceState } from '../../core/types';
 import { eventBus, Events } from '../../core/eventBus';
@@ -350,7 +350,7 @@ describe('RangeTableNodeView', () => {
       }
     });
 
-    it('should not refresh without refId', () => {
+    it('should not refresh without refId', async () => {
       const emitSpy = vi.spyOn(eventBus, 'emit');
       const attrs: RangeTableNodeAttrs = { ...mockAttrs, refId: null };
       const props = createMockProps(attrs);
@@ -369,13 +369,16 @@ describe('RangeTableNodeView', () => {
       if (refreshButton) {
         fireEvent.click(refreshButton);
 
-        // Wait a bit for async to potentially trigger
-        setTimeout(() => {
-          expect(emitSpy).not.toHaveBeenCalledWith(
-            Events.ReferenceUpdated,
-            expect.anything()
-          );
-        }, 100);
+        // Wait to ensure no async event was emitted
+        await waitFor(
+          () => {
+            expect(emitSpy).not.toHaveBeenCalledWith(
+              Events.ReferenceUpdated,
+              expect.anything()
+            );
+          },
+          { timeout: 200 }
+        );
       }
     });
   });
@@ -463,10 +466,12 @@ describe('RangeTableNodeView', () => {
         fireEvent.mouseEnter(tableContent);
       }
 
-      // Emit DataChanged event for this reference
-      eventBus.emit(Events.DataChanged, {
-        referenceId: 'ref-123',
-        newValue: 'new data',
+      // Emit DataChanged event for this reference wrapped in act()
+      await act(async () => {
+        eventBus.emit(Events.DataChanged, {
+          referenceId: 'ref-123',
+          newValue: 'new data',
+        });
       });
 
       // Wait for async refresh
@@ -478,7 +483,7 @@ describe('RangeTableNodeView', () => {
       );
     });
 
-    it('should not listen to DataChanged events for other references in auto mode', () => {
+    it('should not listen to DataChanged events for other references in auto mode', async () => {
       const refreshSpy = vi.spyOn(eventBus, 'emit');
       const attrs: RangeTableNodeAttrs = { ...mockAttrs, syncMode: 'auto' };
       const props = createMockProps(attrs);
@@ -494,10 +499,15 @@ describe('RangeTableNodeView', () => {
         newValue: 'other data',
       });
 
-      // Should not trigger refresh for other references
-      setTimeout(() => {
-        expect(refreshSpy).not.toHaveBeenCalled();
-      }, 100);
+      // Wait a bit to allow any async operations to complete
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Should not have triggered refresh (ReferenceUpdated event) for other references
+      // The spy will have been called for DataChanged, but not for ReferenceUpdated
+      const referenceUpdatedCalls = refreshSpy.mock.calls.filter(
+        call => call[0] === Events.ReferenceUpdated
+      );
+      expect(referenceUpdatedCalls).toHaveLength(0);
     });
   });
 
@@ -632,9 +642,8 @@ describe('RangeTableNodeView', () => {
       }
     });
 
-    it('should subscribe to DataChanged in auto mode and unsubscribe on unmount', () => {
-      const onSpy = vi.spyOn(eventBus, 'on');
-      const offSpy = vi.spyOn(eventBus, 'off');
+    it('should unsubscribe from DataChanged on unmount', async () => {
+      const refreshSpy = vi.spyOn(eventBus, 'emit');
       const attrs: RangeTableNodeAttrs = { ...mockAttrs, syncMode: 'auto' };
       const props = createMockProps(attrs);
       const { unmount } = render(
@@ -643,15 +652,35 @@ describe('RangeTableNodeView', () => {
         </RangeTableNodeView>
       );
 
-      expect(onSpy).toHaveBeenCalledWith(
-        Events.DataChanged,
-        expect.any(Function)
-      );
+      // Emit DataChanged - should trigger refresh
+      await act(async () => {
+        eventBus.emit(Events.DataChanged, { referenceId: 'ref-123', newValue: 'data' });
+      });
+      await waitFor(() => expect(refreshSpy).toHaveBeenCalled());
 
+      // Verify the call was ReferenceUpdated (refresh event)
+      const refreshCallsBefore = refreshSpy.mock.calls.filter(
+        call => call[0] === Events.ReferenceUpdated
+      );
+      expect(refreshCallsBefore).toHaveLength(1);
+
+      // Clear spy calls before unmount
+      refreshSpy.mockClear();
+
+      // Unmount component
       unmount();
 
-      // Cleanup happens in useEffect return
-      expect(offSpy).toHaveBeenCalled();
+      // Emit DataChanged again - should NOT trigger refresh
+      await act(async () => {
+        eventBus.emit(Events.DataChanged, { referenceId: 'ref-123', newValue: 'data2' });
+      });
+
+      // Wait a bit and verify no ReferenceUpdated event was emitted
+      await new Promise(resolve => setTimeout(resolve, 100));
+      const refreshCallsAfter = refreshSpy.mock.calls.filter(
+        call => call[0] === Events.ReferenceUpdated
+      );
+      expect(refreshCallsAfter).toHaveLength(0);
     });
   });
 });
