@@ -20,6 +20,8 @@ interface RangeTableNodeAttrs {
 
 interface RangeTableNodeViewProps extends NodeViewProps {
   children?: ReactNode;
+  /** Optional initial state for testing purposes. Not used in production. */
+  initialState?: ReferenceState;
 }
 
 const STATE_STYLES: Record<ReferenceState, { bg: string; border: string; icon: string }> = {
@@ -30,10 +32,10 @@ const STATE_STYLES: Record<ReferenceState, { bg: string; border: string; icon: s
 };
 
 export function RangeTableNodeView(props: RangeTableNodeViewProps) {
-  const { node, updateAttributes, deleteNode, selected } = props;
+  const { node, updateAttributes, deleteNode, selected, initialState } = props;
   const attrs = node.attrs as RangeTableNodeAttrs;
 
-  const [state, setState] = useState<ReferenceState>('active');
+  const [state, setState] = useState<ReferenceState>(initialState ?? 'active');
   const [hovered, setHovered] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [syncMode, setSyncMode] = useState<'manual' | 'auto'>(attrs.syncMode || 'manual');

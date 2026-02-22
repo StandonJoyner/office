@@ -131,44 +131,80 @@ describe('RangeTableNodeView', () => {
     it('should display stale state correctly', () => {
       const props = createMockProps(mockAttrs);
       const { container } = render(
-        <RangeTableNodeView {...props}>
+        <RangeTableNodeView {...props} initialState="stale">
           <div data-testid="table-content-5">Table</div>
         </RangeTableNodeView>
       );
 
-      // Check that stale styles are not active by default
+      // Check that stale styles are present
       const staleElement = container.querySelector('.bg-yellow-50');
-      expect(staleElement).not.toBeInTheDocument();
+      expect(staleElement).toBeInTheDocument();
+      expect(screen.getByText('stale')).toBeInTheDocument();
+      expect(screen.getByText('⏳')).toBeInTheDocument();
 
-      // Check that active styles are present
+      // Check that active styles are NOT present
       const activeElement = container.querySelector('.bg-green-50');
-      expect(activeElement).toBeInTheDocument();
+      expect(activeElement).not.toBeInTheDocument();
     });
 
     it('should display broken state correctly', () => {
       const props = createMockProps(mockAttrs);
       const { container } = render(
-        <RangeTableNodeView {...props}>
+        <RangeTableNodeView {...props} initialState="broken">
           <div data-testid="table-content-6">Table</div>
         </RangeTableNodeView>
       );
 
-      // Check that broken state styling is not active by default
+      // Check that broken state styling is present
       const brokenElement = container.querySelector('.bg-red-50');
-      expect(brokenElement).not.toBeInTheDocument();
+      expect(brokenElement).toBeInTheDocument();
+      expect(screen.getByText('broken')).toBeInTheDocument();
+      expect(screen.getByText('❌')).toBeInTheDocument();
+
+      // Check that active styles are NOT present
+      const activeElement = container.querySelector('.bg-green-50');
+      expect(activeElement).not.toBeInTheDocument();
     });
 
     it('should display conflict state correctly', () => {
       const props = createMockProps(mockAttrs);
       const { container } = render(
-        <RangeTableNodeView {...props}>
+        <RangeTableNodeView {...props} initialState="conflict">
           <div data-testid="table-content-7">Table</div>
         </RangeTableNodeView>
       );
 
-      // Check that conflict state styling is not active by default
+      // Check that conflict state styling is present
       const conflictElement = container.querySelector('.bg-orange-50');
-      expect(conflictElement).not.toBeInTheDocument();
+      expect(conflictElement).toBeInTheDocument();
+      expect(screen.getByText('conflict')).toBeInTheDocument();
+      expect(screen.getByText('⚠️')).toBeInTheDocument();
+
+      // Check that active styles are NOT present
+      const activeElement = container.querySelector('.bg-green-50');
+      expect(activeElement).not.toBeInTheDocument();
+    });
+
+    it('should apply correct border colors for each state', () => {
+      const states: ReferenceState[] = ['active', 'stale', 'broken', 'conflict'];
+      const borderColors: Record<ReferenceState, string> = {
+        active: 'border-green-200',
+        stale: 'border-yellow-200',
+        broken: 'border-red-200',
+        conflict: 'border-orange-200',
+      };
+
+      states.forEach((state) => {
+        const { container, unmount } = render(
+          <RangeTableNodeView {...createMockProps(mockAttrs)} initialState={state}>
+            <div data-testid={`table-${state}`}>Table</div>
+          </RangeTableNodeView>
+        );
+
+        const indicator = container.querySelector(`.${borderColors[state]}`);
+        expect(indicator).toBeInTheDocument();
+        unmount();
+      });
     });
   });
 
