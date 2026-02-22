@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@tailwindcss/typography": "^0.5.19",
+    "@tiptap/extension-table": "^3.19.0",
     "@tiptap/pm": "^3.19.0",
     "@tiptap/react": "^3.19.0",
     "@tiptap/starter-kit": "^3.19.0",
