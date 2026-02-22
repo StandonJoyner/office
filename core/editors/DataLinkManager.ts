@@ -63,9 +63,14 @@ export class MemoryDataLinkManager implements DataLinkManager {
   }
 
   createReferenceWithId(id: ReferenceId, source: DataSource, target: DocumentId): ReferenceId {
+    // Infer type from range: has endRow/endCol means range reference
+    const type: ReferenceType = (source.range.endRow !== undefined && source.range.endCol !== undefined)
+      ? 'range'
+      : 'cell';
+
     const ref: DataReference = {
       id,
-      type: 'cell',
+      type,
       source,
       target: { documentId: target, nodeId: id },
       display: { format: 'value' },
