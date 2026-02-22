@@ -4,6 +4,7 @@ import {
   DataSource,
   DocumentId,
   ReferenceId,
+  ReferenceType,
 } from '../types';
 import type {
   IExcelDataSourceManager,
