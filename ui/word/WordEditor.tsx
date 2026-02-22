@@ -3,6 +3,7 @@
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { ReferenceNode } from './ReferenceNode';
+import { RangeTableNode } from './RangeTableNode';
 import { DataReference } from '../../core/types';
 import { eventBus, Events } from '../../core/eventBus';
 import { useDataSync } from '../hooks/useDataSync';
@@ -102,7 +103,7 @@ export const WordEditor = forwardRef<WordEditorRefType, WordEditorProps>(({
 
   // Initialize editor
   const editor = useEditor({
-    extensions: [StarterKit, ReferenceNode],
+    extensions: [StarterKit, ReferenceNode, RangeTableNode],
     content,
     editorProps: {
       attributes: {
