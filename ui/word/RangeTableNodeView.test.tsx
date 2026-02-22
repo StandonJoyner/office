@@ -499,15 +499,16 @@ describe('RangeTableNodeView', () => {
         newValue: 'other data',
       });
 
-      // Wait a bit to allow any async operations to complete
-      await new Promise(resolve => setTimeout(resolve, 100));
-
-      // Should not have triggered refresh (ReferenceUpdated event) for other references
-      // The spy will have been called for DataChanged, but not for ReferenceUpdated
-      const referenceUpdatedCalls = refreshSpy.mock.calls.filter(
-        call => call[0] === Events.ReferenceUpdated
+      // Wait to verify no refresh was triggered
+      await waitFor(
+        () => {
+          const referenceUpdatedCalls = refreshSpy.mock.calls.filter(
+            call => call[0] === Events.ReferenceUpdated
+          );
+          expect(referenceUpdatedCalls).toHaveLength(0);
+        },
+        { timeout: 200 }
       );
-      expect(referenceUpdatedCalls).toHaveLength(0);
     });
   });
 
@@ -675,12 +676,16 @@ describe('RangeTableNodeView', () => {
         eventBus.emit(Events.DataChanged, { referenceId: 'ref-123', newValue: 'data2' });
       });
 
-      // Wait a bit and verify no ReferenceUpdated event was emitted
-      await new Promise(resolve => setTimeout(resolve, 100));
-      const refreshCallsAfter = refreshSpy.mock.calls.filter(
-        call => call[0] === Events.ReferenceUpdated
+      // Wait to verify no ReferenceUpdated event was emitted
+      await waitFor(
+        () => {
+          const refreshCallsAfter = refreshSpy.mock.calls.filter(
+            call => call[0] === Events.ReferenceUpdated
+          );
+          expect(refreshCallsAfter).toHaveLength(0);
+        },
+        { timeout: 200 }
       );
-      expect(refreshCallsAfter).toHaveLength(0);
     });
   });
 });
