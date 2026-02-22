@@ -35,6 +35,7 @@ export interface ReferenceDisplay {
   value?: any;
   expression?: string;
   tooltip?: string;
+  tableMeta?: RangeTableMeta;
 }
 
 export interface ReferenceHistory {
@@ -42,6 +43,13 @@ export interface ReferenceHistory {
   action: 'created' | 'updated' | 'resolved' | 'broken';
   value: any;
   userId: string;
+}
+
+export interface RangeTableMeta {
+  rowCount: number;
+  colCount: number;
+  syncMode: 'manual' | 'auto';
+  preserveFormatting: boolean;
 }
 
 export interface DataReference {
