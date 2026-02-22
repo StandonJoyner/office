@@ -40,6 +40,10 @@ export interface WordEditorRefType {
    */
   insertReference: (reference: DataReference) => void;
   /**
+   * Insert a range reference table at the current cursor position
+   */
+  insertRangeTable: (reference: DataReference) => void;
+  /**
    * Get the TipTap editor instance
    */
   getEditor: () => ReturnType<typeof useEditor> | null;
@@ -123,12 +127,13 @@ export const WordEditor = forwardRef<WordEditorRefType, WordEditorProps>(({
   // Expose methods via ref for parent components
   useImperativeHandle(forwardedRef, () => ({
     insertReference: handleInsertReference,
+    insertRangeTable: handleInsertRangeTable,
     getEditor: () => editor,
     getReferenceIds: () => {
       if (!editor) return [];
       const refIds: string[] = [];
       editor.state.doc.descendants((node) => {
-        if (node.type.name === 'reference' && node.attrs.refId) {
+        if ((node.type.name === 'reference' || node.type.name === 'rangeTable') && node.attrs.refId) {
           refIds.push(node.attrs.refId);
         }
       });
@@ -162,6 +167,60 @@ export const WordEditor = forwardRef<WordEditorRefType, WordEditorProps>(({
           format: reference.display.format,
           tooltip: reference.display.tooltip,
         },
+      })
+      .run();
+
+    // Emit event for reference creation
+    eventBus.emit(Events.ReferenceCreated, { reference });
+    onReferenceInserted?.(reference);
+  };
+
+  const handleInsertRangeTable = (reference: DataReference) => {
+    if (!editor) return;
+
+    // Store reference under reference.id
+    if (dataLinkManager) {
+      dataLinkManager.createReferenceWithId(reference.id, reference.source, reference.target.documentId);
+      dataLinkManager.updateReference(reference.id, {
+        display: reference.display,
+        state: reference.state,
+      });
+    }
+
+    // Build table rows from reference data
+    const tableData = reference.display.value as any[][];
+    if (!tableData || !Array.isArray(tableData)) return;
+
+    const tableRows = tableData.map((row) => {
+      const cells = row.map((cell) => {
+        return {
+          type: 'tableCell',
+          content: [{ type: 'paragraph', content: [{ type: 'text', text: String(cell ?? '') }] }],
+        };
+      });
+      return { type: 'tableRow', content: cells };
+    });
+
+    // Parse source info for attributes
+    const sourceInfo = {
+      fileId: reference.source.fileId,
+      sheetId: reference.source.sheetId,
+      fileName: reference.source.fileName,
+      range: reference.source.range,
+    };
+
+    // Insert table at cursor position
+    editor
+      .chain()
+      .focus()
+      .insertContent({
+        type: 'rangeTable',
+        attrs: {
+          refId: reference.id,
+          syncMode: reference.display.tableMeta?.syncMode || 'manual',
+          sourceInfo: JSON.stringify(sourceInfo),
+        },
+        content: tableRows,
       })
       .run();
 
