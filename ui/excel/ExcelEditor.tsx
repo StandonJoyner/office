@@ -85,6 +85,41 @@ export const ExcelEditor = React.forwardRef<ExcelEditorRefType, ExcelEditorProps
 
   // Setup listeners callback
   const setupDataSourceListeners = useCallback((api: FUniver) => {
+    console.log('[ExcelEditor] Setting up data source listeners');
+    
+    // Use the correct Univer Facade API event for selection changes
+    api.addEvent(api.Event.SelectionChanged, (params: any) => {
+      console.log('[ExcelEditor] SelectionChanged event:', params);
+      const { worksheet, workbook, selections } = params;
+
+      if (!selections?.length) {
+        console.log('[ExcelEditor] No selections found');
+        return;
+      }
+
+      const selection = selections[0];
+      console.log('[ExcelEditor] First selection:', selection);
+
+      // The selection object itself contains the range properties directly
+      // Structure: { startRow, startColumn, endRow, endColumn, rangeType }
+      const { startRow, endRow, startColumn, endColumn } = selection;
+
+      if (startRow !== undefined && startColumn !== undefined) {
+        const sheetId = worksheet?.getSheetId?.() || 'sheet-01';
+        console.log('[ExcelEditor] Calling onRangeSelected with:', { sheetId, startRow, startCol: startColumn, endRow: endRow ?? startRow, endCol: endColumn ?? startColumn });
+
+        // Always call onRangeSelected with the full range info
+        // The parent component will decide if it's a single cell or range
+        onRangeSelected?.(sheetId, {
+          startRow,
+          startCol: startColumn,
+          endRow: endRow ?? startRow,
+          endCol: endColumn ?? startColumn
+        });
+      }
+    });
+
+    // Keep the sheet.operation for cell value changes
     api.addEvent('sheet.operation' as any, (params: any) => {
       if (params.type !== 'SET_RANGE_VALUES' || !params.range) return;
       const activeWorkbook = api.getActiveWorkbook();
@@ -109,23 +144,6 @@ export const ExcelEditor = React.forwardRef<ExcelEditorRefType, ExcelEditorProps
         oldValue: null,
         newValue: rangeValue,
       });
-    });
-
-    api.addEvent('sheet.operation' as any, (event: any) => {
-      if (event.type !== 'RANGE_SELECTION') return;
-      const { selections } = event;
-      if (!selections?.length) return;
-
-      const selection = selections[0];
-      const { sheetId, range } = selection;
-      if (range) {
-        const { startRow, endRow, startColumn, endColumn } = range;
-        if (endRow !== undefined && endColumn !== undefined) {
-          onRangeSelected?.(sheetId, { startRow, startCol: startColumn, endRow, endCol: endColumn });
-        } else {
-          onCellSelected?.(sheetId, startRow, startColumn);
-        }
-      }
     });
   }, [onCellSelected, onRangeSelected, onDataChange]);
 

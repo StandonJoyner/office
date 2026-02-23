@@ -23,6 +23,19 @@ interface CellSelection {
   address: string;
 }
 
+/**
+ * Range Selection State
+ */
+interface RangeSelection {
+  sheetId: string;
+  sheetName: string;
+  startRow: number;
+  startCol: number;
+  endRow: number;
+  endCol: number;
+  values: any[][];
+}
+
 export default function IntegratedPage() {
   const excelEditorRef = useRef<ExcelEditorRefType>(null);
   const wordEditorRef = useRef<WordEditorRefType>(null);
@@ -39,6 +52,7 @@ export default function IntegratedPage() {
   // State
   const [selectedReference, setSelectedReference] = useState<DataReference | null>(null);
   const [selectedCell, setSelectedCell] = useState<CellSelection | null>(null);
+  const [selectedRange, setSelectedRange] = useState<RangeSelection | null>(null);
   const [isInserting, setIsInserting] = useState(false);
   const [references, setReferences] = useState<DataReference[]>([]);
   const [documentContent, setDocumentContent] = useState<any>({
@@ -270,11 +284,17 @@ export default function IntegratedPage() {
     const sheet = workbook.getSheetBySheetId(sheetId);
     if (!sheet) return;
 
-    const range = (sheet as any).getRangeByRow?.(row, column);
+    // FWorksheet uses getRange(row, column, numRows?, numColumns?) for numeric args
+    const range = (sheet as any).getRange?.(row, column, 1, 1);
     if (!range) return;
 
     const value = range.getValue();
-    const address = range.getAddress();
+    // Univer FRange uses getA1Notation(); getAddress may exist but not be a function
+    const r = range as { getA1Notation?: () => string; getAddress?: () => string };
+    const address =
+      (typeof r.getA1Notation === 'function' && r.getA1Notation()) ||
+      (typeof r.getAddress === 'function' && r.getAddress()) ||
+      `R${row + 1}C${col + 1}`;
 
     setSelectedCell({
       sheetId,
@@ -288,8 +308,53 @@ export default function IntegratedPage() {
 
   // Handle range selection in Excel (Univer fires onRangeSelected even for single cell)
   const handleRangeSelected = useCallback(
-    (sheetId: string, range: { startRow: number; startCol: number; endRow: number; endCol: number }) => {
-      handleCellSelected(sheetId, range.startRow, range.startCol);
+    async (sheetId: string, range: { startRow: number; startCol: number; endRow: number; endCol: number }) => {
+      // Check if this is a multi-cell range or single cell
+      // A range is multi-cell if it spans more than one row OR more than one column
+      const isMultiCell = (range.endRow > range.startRow) || (range.endCol > range.startCol);
+
+      if (isMultiCell) {
+        // This is a range selection - handle as range
+        const api = excelEditorRef.current?.getAPI?.();
+        if (!api) return;
+
+        const workbook = api.getActiveWorkbook();
+        if (!workbook) return;
+
+        const sheet = workbook.getSheetBySheetId(sheetId);
+        if (!sheet) return;
+
+        // Get all values in the range using Univer FWorksheet API: getRange(row, column, numRows, numColumns)
+        console.log('[integrated] Reading range values:', { sheetId, range });
+        const rowCount = range.endRow - range.startRow + 1;
+        const colCount = range.endCol - range.startCol + 1;
+        const univerRange = (sheet as any).getRange?.(
+          range.startRow,
+          range.startCol,
+          rowCount,
+          colCount
+        );
+        const values = univerRange?.getValues?.() ?? [];
+        console.log('[integrated] Range values from getValues:', values);
+
+        setSelectedRange({
+          sheetId,
+          sheetName: (sheet as any).getName?.() || '',
+          startRow: range.startRow,
+          startCol: range.startCol,
+          endRow: range.endRow,
+          endCol: range.endCol,
+          values,
+        });
+
+        // Clear single cell selection when range is selected
+        setSelectedCell(null);
+      } else {
+        // This is a single cell selection
+        handleCellSelected(sheetId, range.startRow, range.startCol);
+        // Clear range selection when single cell is selected
+        setSelectedRange(null);
+      }
     },
     [handleCellSelected]
   );
@@ -322,9 +387,10 @@ export default function IntegratedPage() {
         const row = currentCell?.actualRow ?? activeRange?.getRow?.() ?? 0;
         const col = currentCell?.actualColumn ?? activeRange?.getColumn?.() ?? 0;
 
-        // Use activeRange (FRange) for value/address - sheet.getRangeByRow may not exist on raw worksheet
-        const value = activeRange?.getValue?.() ?? (sheet as any)?.getRangeByRow?.(row, col)?.getValue?.();
-        const address = activeRange?.getAddress?.() ?? activeRange?.getA1Notation?.() ?? (sheet as any)?.getRangeByRow?.(row, col)?.getAddress?.() ?? `R${row + 1}C${col + 1}`;
+        // Use activeRange (FRange) for value/address, or FWorksheet.getRange(row, col, 1, 1)
+        const singleRange = (sheet as any)?.getRange?.(row, col, 1, 1);
+        const value = activeRange?.getValue?.() ?? singleRange?.getValue?.();
+        const address = activeRange?.getAddress?.() ?? activeRange?.getA1Notation?.() ?? singleRange?.getAddress?.() ?? singleRange?.getA1Notation?.() ?? `R${row + 1}C${col + 1}`;
 
         if (sheet) {
           cellInfo = {
@@ -385,6 +451,117 @@ export default function IntegratedPage() {
       setIsInserting(false);
     }
   }, [selectedCell, documentId]);
+
+  // Insert table reference from selected Excel range
+  const handleInsertTableReference = useCallback(async () => {
+    if (!wordEditorRef.current) return;
+
+    let rangeInfo = selectedRange;
+
+    // Fallback: fetch current selection from Excel API
+    if (!rangeInfo) {
+      const api = excelEditorRef.current?.getAPI?.();
+      if (!api) return;
+
+      const workbook = api.getActiveWorkbook();
+      const sheet = workbook?.getActiveSheet();
+
+      const selections = (sheet as any)?.getSelections?.();
+
+      if (selections?.[0]) {
+        const sel = selections[0];
+        // The selection object has range properties directly
+        const { startRow, endRow, startColumn: startCol, endColumn: endCol } = sel;
+
+        // Only proceed if it's a multi-cell range
+        const isMultiCell = (endRow > startRow) || (endCol > startCol);
+
+        if (isMultiCell) {
+          // Get the full range and read all values via FWorksheet.getRange(row, column, numRows, numColumns)
+          const rowCount = endRow - startRow + 1;
+          const colCount = endCol - startCol + 1;
+          const univerRange = (sheet as any).getRange?.(
+            startRow,
+            startCol,
+            rowCount,
+            colCount
+          );
+          if (!univerRange) {
+            alert('无法获取 Excel 范围');
+            return;
+          }
+          const values = univerRange.getValues?.() ?? [];
+          console.log('[integrated] Range values:', values);
+
+          rangeInfo = {
+            sheetId: (sheet as any).getSheetId?.() || 'sheet-01',
+            sheetName: (sheet as any).getName?.() || 'Sheet1',
+            startRow,
+            startCol,
+            endRow,
+            endCol,
+            values,
+          };
+        }
+      }
+    }
+
+    if (!rangeInfo) {
+      // Cannot insert without range selection - this must come from Excel
+      console.log('[integrated] No range selected, user must select range in Excel first');
+      alert('请先在 Excel 中选择一个单元格范围：\n\n1. 在 Excel 中点击并拖动选择多个单元格\n2. 然后点击“插入表格到 Word”按钮');
+      return;
+    }
+
+    setIsInserting(true);
+    try {
+      const dataSource: DataSource = {
+        fileId: 'demo-workbook',
+        fileName: 'Demo.xlsx',
+        sheetId: rangeInfo.sheetId,
+        sheetName: rangeInfo.sheetName,
+        range: {
+          startRow: rangeInfo.startRow,
+          startCol: rangeInfo.startCol,
+          endRow: rangeInfo.endRow,
+          endCol: rangeInfo.endCol,
+        },
+        isFormula: false,
+      };
+
+      const reference: DataReference = {
+        id: crypto.randomUUID(),
+        type: 'range',
+        source: dataSource,
+        target: {
+          documentId,
+          nodeId: crypto.randomUUID(),
+        },
+        display: {
+          format: 'value',
+          value: rangeInfo.values,
+          expression: `[Demo.xlsx!${rangeInfo.sheetName}!${rangeInfo.startRow + 1}:${rangeInfo.endRow + 1}]`,
+          tooltip: `Source: Demo.xlsx, ${rangeInfo.sheetName}, Range(${rangeInfo.startRow + 1},${rangeInfo.startCol + 1})-(${rangeInfo.endRow + 1},${rangeInfo.endCol + 1})`,
+          tableMeta: {
+            syncMode: 'manual',
+            rowCount: rangeInfo.endRow - rangeInfo.startRow + 1,
+            colCount: rangeInfo.endCol - rangeInfo.startCol + 1,
+            preserveFormatting: false,
+          },
+        },
+        state: 'active',
+        history: [],
+      };
+
+      wordEditorRef.current.insertRangeTable(reference);
+      setSelectedReference(reference);
+    } catch (error) {
+      console.error('Error inserting table reference:', error);
+      alert('插入表格引用失败: ' + (error as Error).message);
+    } finally {
+      setIsInserting(false);
+    }
+  }, [selectedRange, documentId]);
 
   // Refresh all references in Word (use refs so callback always has latest)
   const handleRefreshAllReferences = useCallback(async () => {
@@ -447,6 +624,33 @@ export default function IntegratedPage() {
           </div>
         )}
 
+        {/* Selected Range Info Panel */}
+        {selectedRange && (
+          <div className="mb-4 p-4 bg-purple-50 rounded-lg border border-purple-200">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-purple-900 mb-1">
+                  已选中范围
+                </h3>
+                <div className="text-sm text-purple-800 space-y-0.5">
+                  <p><strong>工作表:</strong> {selectedRange.sheetName}</p>
+                  <p><strong>起始位置:</strong> ({selectedRange.startRow + 1}, {selectedRange.startCol + 1})</p>
+                  <p><strong>结束位置:</strong> ({selectedRange.endRow + 1}, {selectedRange.endCol + 1})</p>
+                  <p><strong>大小:</strong> {selectedRange.endRow - selectedRange.startRow + 1} 行 x {selectedRange.endCol - selectedRange.startCol + 1} 列</p>
+                  <p><strong>数据:</strong> ({selectedRange.values.length} 行)</p>
+                </div>
+              </div>
+              <button
+                onClick={handleInsertTableReference}
+                disabled={isInserting}
+                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-purple-400 disabled:cursor-not-allowed transition-colors"
+              >
+                {isInserting ? '插入中...' : '插入表格到 Word'}
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Main Content Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Word Editor Panel */}
@@ -466,6 +670,7 @@ export default function IntegratedPage() {
                 onChange={handleContentChange}
                 onReferenceInserted={handleReferenceInserted}
                 onInsertReferenceRequest={handleInsertReference}
+                onInsertTableReferenceRequest={handleInsertTableReference}
                 documentId={documentId}
                 dataLinkManager={dataLinkManagerRef.current}
                 syncEngine={syncEngineRef.current}
@@ -547,6 +752,46 @@ export default function IntegratedPage() {
                 onRangeSelected={handleRangeSelected}
                 fileId="demo-workbook"
                 fileName="Demo.xlsx"
+                initialData={{
+                  id: 'demo-workbook',
+                  sheetOrder: ['sheet-01'],
+                  name: 'Demo',
+                  appVersion: '1.0.0',
+                  sheets: {
+                    'sheet-01': {
+                      id: 'sheet-01',
+                      name: 'Sheet1',
+                      rowCount: 100,
+                      columnCount: 26,
+                      cellData: {
+                        // Row 1
+                        0: {
+                          0: { v: 'ID' },  // A1
+                          1: { v: 'Name' },  // B1
+                          2: { v: 'Value' },  // C1
+                        },
+                        // Row 2
+                        1: {
+                          0: { v: 1 },  // A2
+                          1: { v: 'Item A' },  // B2
+                          2: { v: 100 },  // C2
+                        },
+                        // Row 3
+                        2: {
+                          0: { v: 2 },  // A3
+                          1: { v: 'Item B' },  // B3
+                          2: { v: 200 },  // C3
+                        },
+                        // Row 4
+                        3: {
+                          0: { v: 3 },  // A4
+                          1: { v: 'Item C' },  // B4
+                          2: { v: 300 },  // C4
+                        },
+                      },
+                    },
+                  },
+                }}
               />
               <p className="mt-4 text-sm text-slate-600">
                 选择一个单元格来创建可以在 Word 文档中使用的数据引用。

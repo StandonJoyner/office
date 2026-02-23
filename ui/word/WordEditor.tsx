@@ -2,6 +2,7 @@
 
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
+import { TableRow, TableCell, TableHeader } from '@tiptap/extension-table';
 import { ReferenceNode } from './ReferenceNode';
 import { RangeTableNode } from './RangeTableNode';
 import { DataReference } from '../../core/types';
@@ -110,7 +111,7 @@ export const WordEditor = forwardRef<WordEditorRefType, WordEditorProps>(({
 
   // Initialize editor
   const editor = useEditor({
-    extensions: [StarterKit, ReferenceNode, RangeTableNode],
+    extensions: [StarterKit, TableRow, TableCell, TableHeader, ReferenceNode, RangeTableNode],
     content,
     editorProps: {
       attributes: {
@@ -194,15 +195,9 @@ export const WordEditor = forwardRef<WordEditorRefType, WordEditorProps>(({
     const tableData = reference.display.value as any[][];
     if (!tableData || !Array.isArray(tableData)) return;
 
-    const tableRows = tableData.map((row) => {
-      const cells = row.map((cell) => {
-        return {
-          type: 'tableCell',
-          content: [{ type: 'paragraph', content: [{ type: 'text', text: String(cell ?? '') }] }],
-        };
-      });
-      return { type: 'tableRow', content: cells };
-    });
+    const rowCount = tableData.length;
+    const colCount = tableData[0]?.length || 0;
+    if (rowCount === 0 || colCount === 0) return;
 
     // Parse source info for attributes
     const sourceInfo = {
@@ -212,19 +207,31 @@ export const WordEditor = forwardRef<WordEditorRefType, WordEditorProps>(({
       range: reference.source.range,
     };
 
+    // Build table content using Tiptap's table structure
+    const tableContent = {
+      type: 'rangeTable',
+      attrs: {
+        refId: reference.id,
+        syncMode: reference.display.tableMeta?.syncMode || 'manual',
+        sourceInfo: JSON.stringify(sourceInfo),
+      },
+      content: tableData.map((row) => ({
+        type: 'tableRow',
+        content: row.map((cell) => {
+          const cellText = cell != null && cell !== '' ? String(cell) : '\u00A0';
+          return {
+            type: 'tableCell',
+            content: [{ type: 'paragraph', content: [{ type: 'text', text: cellText }] }],
+          };
+        }),
+      })),
+    };
+
     // Insert table at cursor position
     editor
       .chain()
       .focus()
-      .insertContent({
-        type: 'rangeTable',
-        attrs: {
-          refId: reference.id,
-          syncMode: reference.display.tableMeta?.syncMode || 'manual',
-          sourceInfo: JSON.stringify(sourceInfo),
-        },
-        content: tableRows,
-      })
+      .insertContent(tableContent)
       .run();
 
     // Emit event for reference creation
@@ -366,11 +373,46 @@ export const WordEditor = forwardRef<WordEditorRefType, WordEditorProps>(({
             if (onInsertTableReferenceRequest) {
               onInsertTableReferenceRequest();
             } else {
-              console.log('No table reference callback provided');
+              // Fallback: insert test table reference
+              const testTableReference = {
+                id: crypto.randomUUID(),
+                type: 'range' as const,
+                source: {
+                  fileId: 'test-file',
+                  fileName: 'Test.xlsx',
+                  sheetId: 'sheet1',
+                  sheetName: 'Sheet1',
+                  range: { startRow: 0, startCol: 0, endRow: 2, endCol: 2 },
+                  isFormula: false,
+                },
+                target: {
+                  documentId: 'test-doc',
+                  nodeId: crypto.randomUUID(),
+                },
+                display: {
+                  format: 'value',
+                  value: [
+                    ['A1', 'B1', 'C1'],
+                    ['A2', 'B2', 'C2'],
+                    ['A3', 'B3', 'C3'],
+                  ],
+                  expression: '[Test.xlsx!Sheet1!A1:C3]',
+                  tooltip: 'Source: Test.xlsx, Sheet1, A1:C3',
+                  tableMeta: {
+                    syncMode: 'manual' as const,
+                    rowCount: 3,
+                    colCount: 3,
+                    preserveFormatting: false,
+                  },
+                },
+                state: 'active' as const,
+                history: [],
+              };
+              handleInsertRangeTable(testTableReference);
             }
           }}
           className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
-          title={onInsertTableReferenceRequest ? 'Insert table reference from selected Excel range' : 'No table reference callback'}
+          title={onInsertTableReferenceRequest ? 'Insert table reference from selected Excel range' : 'Insert test table reference'}
         >
           + Table Reference
         </button>

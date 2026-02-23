@@ -4,7 +4,7 @@ import type { WordEditorRefType } from './WordEditor';
 
 describe('WordEditor', () => {
   it('should have RangeTableNode in extensions', () => {
-    // This will be verified by checking the editor extensions
+    // This will be verified by checking that editor extensions
     // The actual implementation would check that RangeTableNode is registered
     expect(RangeTableNode).toBeDefined();
   });

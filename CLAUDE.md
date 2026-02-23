@@ -49,11 +49,13 @@ This is an office suite with deep integration between Word and Excel editors, fe
 
 **Editor Core Layer**
 - Word: Tiptap (ProseMirror-based) in `ui/word/`
+  - `ReferenceNode`: Custom atom node for single cell references
+  - `RangeTableNode`: Custom table node for Excel range references (extends @tiptap/extension-table)
 - Excel: Univer in `ui/excel/` (ExcelEditor)
 
 **Business Logic Layer** (`core/`)
 - `eventBus.ts`: Event-driven communication between modules
-- `types.ts`: Core type definitions (`DataReference`, `DataSource`, `ReferenceState`, etc.)
+- `types.ts`: Core type definitions (`DataReference`, `DataSource`, `ReferenceState`, `RangeTableMeta`, etc.)
 - `editors/DataLinkManager.ts`: Manages references between Excel data sources and Word documents
 - `editors/ExcelDataSource.ts`: Excel cell/range resolution and change monitoring
 - `editors/UniverWorkbookAdapter.ts`: Adapter for Univer workbook API
@@ -85,15 +87,23 @@ enum Events {
 }
 ```
 
-Key pattern: When Excel data changes, `ExcelDataSource` emits `Events.DataChanged`, which `DataLinkManager` listens to and triggers updates to affected references.
+Key pattern: When Excel data changes, `ExcelDataSource` emits `Events.DataChanged`, which `DataLinkManager` listens to and triggers updates to affected references. Range tables in auto-sync mode also listen to `DataChanged` events via `useEditorDataSync` to update table content automatically.
 
 ### Data Reference Flow
 
+#### Single Cell References
 1. **Creation**: User selects a cell in Excel → `DataLinkManager.createReference()` creates a reference
 2. **Storage**: Reference stored in `MemoryDataLinkManager` with source (Excel) and target (Word) info
 3. **Resolution**: `ExcelDataSourceManager.resolveReference()` fetches current value from Univer
 4. **Sync**: `DataSyncEngine` handles manual/automatic refresh with conflict resolution
 5. **Traceability**: `TraceabilityService` tracks versions, history, and dependencies
+
+#### Range Reference Tables
+1. **Creation**: User selects a range in Excel → `WordEditor.insertRangeTable()` creates a table reference
+2. **Storage**: Reference stored with `tableMeta` (rowCount, colCount, syncMode, preserveFormatting)
+3. **Insertion**: Table rows are built from 2D array data and inserted as `rangeTable` node
+4. **Sync**: `useEditorDataSync` handles table content updates on data changes
+5. **State Management**: Table state (active/stale/broken/conflict) displayed and updated via event bus
 
 ### Reactive Signal Pattern (DataBinding)
 
@@ -172,6 +182,8 @@ The `adapters/index.ts` factory detects runtime environment and provides appropr
 - `CellRange`: Excel range coordinates (startRow, startCol, endRow?, endCol?)
 - `ReferenceTarget`: Document/node position in Word
 - `ReferenceState`: `'active' | 'stale' | 'broken' | 'conflict'`
+- `RangeTableMeta`: Table-specific metadata including rowCount, colCount, syncMode, preserveFormatting
+- `ReferenceDisplay.tableMeta`: Optional table metadata for range references
 
 ### Univer Excel Integration Notes
 
@@ -184,16 +196,53 @@ The `adapters/index.ts` factory detects runtime environment and provides appropr
 
 - `ReferenceNode`: Custom Tiptap atom node for inline data references
 - `ReferenceNodeView.tsx`: React component rendering the reference with state visualization
+- `RangeTableNode`: Custom Tiptap table node for Excel range references (extends @tiptap/extension-table)
+- `RangeTableNodeView.tsx`: React component rendering the range table with state visualization, sync controls, and delete functionality
 - References use inline atom nodes with HTML serialization/deserialization
+- Range references insert as tables with fixed size determined at creation time
+
+### Range Reference Table Features
+
+- **Table Insertion**: Excel cell ranges insert as Tiptap tables in Word documents
+- **Sync Modes**: Manual (default) or Auto-sync for automatic updates
+- **State Indicators**: Visual indicators for active, stale, broken, and conflict states
+- **Interactive Controls**:
+  - Refresh button for manual sync
+  - Sync mode toggle (manual ↔ auto)
+  - Delete button with confirmation
+- **Hover Toolbar**: Shows controls when hovering over table
+- **Selection Ring**: Visual indicator when table is selected
+- **Source Tracking**: Stores Excel file, sheet, and range information in table attributes
+
+### WordEditor Ref API
+
+```typescript
+// Reference methods
+editorRef.current?.insertReference(reference: DataReference);
+editorRef.current?.insertRangeTable(reference: DataReference);
+editorRef.current?.getEditor(); // Returns Tiptap editor instance
+editorRef.current?.getReferenceIds(); // Returns array of all reference IDs
+```
+
+**Key methods**:
+- `insertReference()`: Insert a single cell reference at cursor position
+- `insertRangeTable()`: Insert a range reference as table at cursor position
+- `getEditor()`: Access underlying Tiptap editor for advanced operations
+- `getReferenceIds()`: Get all reference IDs for document-wide operations
 
 ### Test Structure
 
 Test files are located alongside their source files:
 - `core/eventBus.test.ts`
+- `core/editors/DataLinkManager.test.ts`
+- `core/editors/ExcelDataSource.test.ts` (includes range resolution tests)
 - `core/sync/DataSyncEngine.test.ts`
 - `core/trace/TraceabilityService.test.ts`
+- `ui/word/RangeTableNode.test.ts` (node type tests)
+- `ui/word/RangeTableNodeView.test.tsx` (E2E component tests - 24 tests)
+- `ui/hooks/useEditorDataSync.test.ts` (sync hook tests including range tables)
 
-Tests use Vitest with jsdom environment configured in `vitest.config.ts`.
+Tests use Vitest with jsdom environment configured in `vitest.config.ts` and setup file `vitest.setup.ts` for jest-dom matchers.
 
 ## Important Notes
 
@@ -243,3 +292,47 @@ const manager = createDataLinkManager();
 const syncEngine = createDataSyncEngine(manager);
 const traceService = createTraceabilityService(docLoader, refLoader);
 ```
+
+## Range Reference Implementation
+
+### Overview
+Range references allow Excel cell ranges to be inserted as tables in Word documents with automatic data synchronization.
+
+### Key Components
+
+**RangeTableNode** (`ui/word/RangeTableNode.ts`)
+- Extends @tiptap/extension-table to preserve native Tiptap table functionality
+- Custom attributes: refId, syncMode, sourceInfo
+- Supports HTML serialization/deserialization for document persistence
+
+**RangeTableNodeView** (`ui/word/RangeTableNodeView.tsx`)
+- React component rendering the range table with UI controls
+- State indicators (active, stale, broken, conflict) with visual icons
+- Hover toolbar with refresh, sync toggle, and delete buttons
+- Auto-sync mode subscribes to DataChanged events
+
+**useEditorDataSync** (`ui/hooks/useEditorDataSync.ts`)
+- Handles both single cell references and range table references
+- On DataChanged events, updates matching range tables with new cell data
+- On ReferenceUpdated events, refreshes table content and updates state
+
+**WordEditor** (`ui/word/WordEditor.tsx`)
+- `insertRangeTable()`: Insert a range reference as table at cursor position
+- `onInsertTableReferenceRequest`: Callback prop for parent to handle table reference creation
+- "+ Table Reference" button in toolbar to trigger table reference insertion
+
+### Testing
+
+**Unit Tests**: 78 tests passing
+- RangeTableNode: 2 tests (node type validation)
+- RangeTableNodeView: 24 E2E tests (all user interactions)
+- ExcelDataSource: 43 tests (including 6 range resolution tests)
+- DataLinkManager: 39 tests (including 3 range reference tests)
+- useEditorDataSync: 12 tests (sync functionality)
+
+**Manual Testing**: See `docs/plans/manual-testing-checklist.md` for comprehensive manual testing guide with 80+ test cases.
+
+### Documentation
+
+- `docs/plans/implementation-summary.md`: Complete implementation overview and architecture diagram
+- `docs/plans/manual-testing-checklist.md`: Manual testing checklist for QA verification

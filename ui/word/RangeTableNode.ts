@@ -1,19 +1,12 @@
 import { Node, mergeAttributes } from '@tiptap/core';
 import { Table } from '@tiptap/extension-table';
-import { ReactNodeViewRenderer } from '@tiptap/react';
-import { RangeTableNodeView } from './RangeTableNodeView';
 
-/**
- * Tiptap Node for Excel Range Reference Table
- *
- * Extends Tiptap Table to add Excel reference tracking attributes.
- * Preserves all native table functionality (add/delete rows/columns, merge cells, etc.)
- */
 export const RangeTableNode = Table.extend({
   name: 'rangeTable',
 
-  group: 'block',
   content: 'tableRow+',
+
+  group: 'block',
 
   addAttributes() {
     return {
@@ -50,14 +43,6 @@ export const RangeTableNode = Table.extend({
     };
   },
 
-  parseHTML() {
-    return [
-      {
-        tag: 'table[data-type="rangeTable"]',
-      },
-    ];
-  },
-
   renderHTML({ HTMLAttributes }) {
     return [
       'table',
@@ -68,10 +53,8 @@ export const RangeTableNode = Table.extend({
         },
         HTMLAttributes
       ),
+      // Render rows inside tbody
+      ['tbody', 0],
     ];
-  },
-
-  addNodeView() {
-    return ReactNodeViewRenderer(RangeTableNodeView);
   },
 });
